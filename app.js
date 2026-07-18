@@ -19,6 +19,11 @@
   const FINAL_STATUSES = ["Entregue", "Cancelado"];
   const OPEN_DELIVERY_STATUSES = ["Novo", "Confirmado", "Em separação", "Pronto", "Saiu para entrega", "Fiado"];
 
+  const ACCESS_PROFILES = Object.freeze({
+    "h5fDchVPGeN3qZbtM3GgQq3Awrg1": { name: "Geison", role: "admin" },
+    "L1MHzZXvCqM1GRJZJxWK8hODDCv2": { name: "Vendedor", role: "seller" }
+  });
+
   let state = null;
   let currentUser = null;
   let currentView = "dashboard";
@@ -45,10 +50,6 @@
         nextOrderSequence: 1,
         whatsappTemplate: "Olá, {cliente}! Seu pedido {pedido} foi registrado.\n\n{itens}\n\nTotal: {total}\nEntrega: {entrega}\n\nSantos Alhos"
       },
-      users: [
-        { id: "u-admin", username: "admin", password: "1234", name: "Administrador", role: "admin" },
-        { id: "u-vendedor", username: "vendedor", password: "1234", name: "Vendedor", role: "seller" }
-      ],
       customers: [],
       products: [
         { id: uid("prod"), name: "Camarão descascado", category: "Camarão", unit: "kg", price: 45, stock: 0, minStock: 5, active: true, description: "Camarão limpo e pronto para preparo.", createdAt: now },
@@ -130,9 +131,14 @@
       const ref = db.collection("santosPedidos").doc("main");
       const doc = await ref.get();
       if (doc.exists) {
-        state = normalizeState(doc.data());
+        const remoteData = doc.data();
+        state = normalizeState(remoteData);
+        if (remoteData?.users && currentUser?.role === "admin") {
+          await ref.set(state);
+        }
       } else {
         state = loadLocalState();
+        if (currentUser?.role !== "admin") throw new Error("Somente o administrador pode criar o banco inicial.");
         await ref.set(state);
       }
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -176,15 +182,16 @@
 
   function normalizeState(data) {
     const base = defaultState();
-    return {
+    const normalized = {
       ...base,
       ...data,
       settings: { ...base.settings, ...(data?.settings || {}) },
-      users: Array.isArray(data?.users) && data.users.length ? data.users : base.users,
       customers: Array.isArray(data?.customers) ? data.customers : [],
       products: Array.isArray(data?.products) && data.products.length ? data.products : base.products,
       orders: Array.isArray(data?.orders) ? data.orders : []
     };
+    delete normalized.users;
+    return normalized;
   }
 
   function updateStorageLabels() {
@@ -240,13 +247,29 @@
 
   function firebaseUserProfile(user) {
     const email = user.email || "usuario";
-    const savedUser = state?.users?.find(item => normalizeText(item.username) === normalizeText(email));
+    const access = ACCESS_PROFILES[user.uid];
     return {
       id: user.uid,
+      uid: user.uid,
+      email,
       username: email,
-      name: user.displayName || savedUser?.name || email.split("@")[0],
-      role: savedUser?.role || "admin"
+      name: access?.name || user.displayName || email.split("@")[0],
+      role: access?.role || "blocked"
     };
+  }
+
+  function auditUser() {
+    return {
+      uid: currentUser?.uid || currentUser?.id || "",
+      email: currentUser?.email || currentUser?.username || "",
+      name: currentUser?.name || "Usuário"
+    };
+  }
+
+  function requireAdmin(message = "Esta ação é exclusiva do administrador.") {
+    if (currentUser?.role === "admin") return true;
+    toast(message, "error");
+    return false;
   }
 
   function enterApp() {
@@ -256,6 +279,7 @@
     $("user-role").textContent = currentUser.role === "admin" ? "Administrador" : "Vendedor";
     $("user-avatar").textContent = currentUser.name.charAt(0).toUpperCase();
     $$(".admin-only").forEach(el => { el.style.display = currentUser.role === "admin" ? "" : "none"; });
+    $$(".admin-financial").forEach(el => { el.style.display = currentUser.role === "admin" ? "" : "none"; });
     renderAll();
     resetOrderForm();
     showView("dashboard");
@@ -528,9 +552,13 @@
       items,
       stockDeducted: existing?.stockDeducted || false,
       createdAt: existing?.createdAt || new Date().toISOString(),
-      createdBy: existing?.createdBy || currentUser.name,
+      createdBy: existing?.createdBy || auditUser().name,
+      createdByUid: existing?.createdByUid || auditUser().uid,
+      createdByEmail: existing?.createdByEmail || auditUser().email,
       updatedAt: new Date().toISOString(),
-      updatedBy: currentUser.name
+      updatedBy: auditUser().name,
+      updatedByUid: auditUser().uid,
+      updatedByEmail: auditUser().email
     };
 
     if (existing) {
@@ -587,7 +615,9 @@
     if (!order) return;
     order.status = status;
     order.updatedAt = new Date().toISOString();
-    order.updatedBy = currentUser.name;
+    order.updatedBy = auditUser().name;
+    order.updatedByUid = auditUser().uid;
+    order.updatedByEmail = auditUser().email;
     if (status === "Entregue" && !order.stockDeducted) deductOrderStock(order);
     scheduleSave(true);
     renderAll();
@@ -597,7 +627,7 @@
 
   function cancelOrDeleteOrder(id) {
     const order = state.orders.find(item => item.id === id);
-    if (!order || currentUser.role !== "admin") return;
+    if (!order || !requireAdmin()) return;
     if (order.status !== "Cancelado") {
       if (!confirmAction(`Cancelar o pedido ${order.number}?`)) return;
       setOrderStatus(id, "Cancelado");
@@ -662,6 +692,11 @@
         <div class="detail-box"><span>Pagamento</span><strong>${escapeHtml(order.paymentMethod)}</strong></div>
         <div class="detail-box"><span>WhatsApp</span><strong>${escapeHtml(customer?.phone || "—")}</strong></div>
         <div class="detail-box"><span>Região</span><strong>${escapeHtml(order.region || customer?.region || "—")}</strong></div>
+      </div>
+      <div class="detail-grid audit-grid">
+        <div class="detail-box"><span>Criado por</span><strong>${escapeHtml(order.createdBy || "—")}</strong><small>${escapeHtml(order.createdByEmail || "")}</small></div>
+        <div class="detail-box"><span>Última alteração</span><strong>${escapeHtml(order.updatedBy || order.createdBy || "—")}</strong><small>${escapeHtml(order.updatedByEmail || order.createdByEmail || "")}</small></div>
+        <div class="detail-box"><span>Atualizado em</span><strong>${order.updatedAt ? new Date(order.updatedAt).toLocaleString("pt-BR") : "—"}</strong></div>
       </div>
       <div class="detail-box"><span>Endereço</span><strong>${escapeHtml(order.address || customer?.address || "—")}</strong></div>
       <table class="detail-items"><thead><tr><th>Produto</th><th>Qtd.</th><th>Preço</th><th>Total</th></tr></thead><tbody>
@@ -750,7 +785,13 @@
       preferredPayment: $("customer-payment").value,
       notes: $("customer-notes").value.trim(),
       createdAt: existing?.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      createdBy: existing?.createdBy || auditUser().name,
+      createdByUid: existing?.createdByUid || auditUser().uid,
+      createdByEmail: existing?.createdByEmail || auditUser().email,
+      updatedAt: new Date().toISOString(),
+      updatedBy: auditUser().name,
+      updatedByUid: auditUser().uid,
+      updatedByEmail: auditUser().email
     };
     if (existing) state.customers = state.customers.map(item => item.id === id ? customer : item);
     else state.customers.push(customer);
@@ -767,7 +808,7 @@
   }
 
   function deleteCustomer(id) {
-    if (currentUser.role !== "admin") return;
+    if (!requireAdmin()) return;
     if (state.orders.some(order => order.customerId === id)) {
       toast("Este cliente possui pedidos e não pode ser excluído.", "error");
       return;
@@ -828,7 +869,7 @@
   }
 
   function openProductModal(product = null) {
-    if (currentUser.role !== "admin") return;
+    if (!requireAdmin()) return;
     $("product-form").reset();
     $("product-id").value = product?.id || "";
     $("product-modal-title").textContent = product ? "Editar produto" : "Novo produto";
@@ -845,7 +886,7 @@
 
   function saveProduct(event) {
     event.preventDefault();
-    if (currentUser.role !== "admin") return;
+    if (!requireAdmin()) return;
     const id = $("product-id").value;
     const existing = state.products.find(item => item.id === id);
     const product = {
@@ -859,7 +900,13 @@
       active: $("product-active").value === "true",
       description: $("product-description").value.trim(),
       createdAt: existing?.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      createdBy: existing?.createdBy || auditUser().name,
+      createdByUid: existing?.createdByUid || auditUser().uid,
+      createdByEmail: existing?.createdByEmail || auditUser().email,
+      updatedAt: new Date().toISOString(),
+      updatedBy: auditUser().name,
+      updatedByUid: auditUser().uid,
+      updatedByEmail: auditUser().email
     };
     if (existing) state.products = state.products.map(item => item.id === id ? product : item);
     else state.products.push(product);
@@ -870,7 +917,7 @@
   }
 
   function deleteProduct(id) {
-    if (currentUser.role !== "admin") return;
+    if (!requireAdmin()) return;
     if (state.orders.some(order => order.items.some(item => item.productId === id))) {
       toast("Este produto já possui pedidos. Marque-o como indisponível em vez de excluir.", "error");
       return;
@@ -994,6 +1041,7 @@
 
   function saveSettings(event) {
     event.preventDefault();
+    if (!requireAdmin()) return;
     state.settings.businessName = $("business-name").value.trim() || "Santos Alhos";
     state.settings.businessPhone = onlyDigits($("business-phone").value);
     state.settings.orderPrefix = $("order-prefix").value.trim().toUpperCase() || "PED";
@@ -1005,6 +1053,7 @@
   }
 
   function exportData() {
+    if (!requireAdmin()) return;
     const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -1015,6 +1064,7 @@
   }
 
   function importData(file) {
+    if (!requireAdmin()) return;
     const reader = new FileReader();
     reader.onload = event => {
       try {
@@ -1153,9 +1203,14 @@
           showLogin();
           return;
         }
+        currentUser = firebaseUserProfile(user);
+        if (currentUser.role === "blocked") {
+          toast("Esta conta não possui autorização para acessar o aplicativo.", "error");
+          await auth.signOut();
+          return;
+        }
         $("storage-mode").textContent = "Carregando dados online…";
         await initStorageForAuthenticatedUser();
-        currentUser = firebaseUserProfile(user);
         enterApp();
       });
     } catch (error) {

@@ -1,10 +1,40 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Regras temporárias somente para o primeiro teste online.
-    // Substituir por regras com Firebase Authentication antes do uso real.
-    match /santosPedidos/{document=**} {
-      allow read, write: if true;
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn() && request.auth.uid == "h5fDchVPGeN3qZbtM3GgQq3Awrg1";
+    }
+
+    function isSeller() {
+      return signedIn() && request.auth.uid == "L1MHzZXvCqM1GRJZJxWK8hODDCv2";
+    }
+
+    function sellerUpdateAllowed() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          "customers", "products", "orders", "settings", "updatedAt", "users"
+        ])
+        && request.resource.data.settings.diff(resource.data.settings).affectedKeys().hasOnly([
+          "nextOrderSequence"
+        ])
+        && request.resource.data.customers.size() >= resource.data.customers.size()
+        && request.resource.data.products.size() >= resource.data.products.size()
+        && request.resource.data.orders.size() >= resource.data.orders.size()
+        && !request.resource.data.keys().hasAny(["users"]);
+    }
+
+    match /santosPedidos/main {
+      allow read: if isAdmin() || isSeller();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (isSeller() && sellerUpdateAllowed());
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

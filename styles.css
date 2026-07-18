@@ -186,6 +186,7 @@ td { font-size: 13px; }
 .detail-box { padding: 12px; border-radius: 11px; background: #f4f8f7; }
 .detail-box span { display: block; color: var(--muted); font-size: 11px; }
 .detail-box strong { display: block; margin-top: 4px; }
+.detail-box small { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
 .detail-items { width: 100%; margin: 15px 0; }
 .detail-total { display: flex; justify-content: space-between; padding: 15px; border-radius: 12px; background: var(--primary); color: white; font-size: 18px; font-weight: 900; }
 .toast { position: fixed; right: 20px; bottom: 20px; z-index: 200; max-width: min(390px, calc(100vw - 40px)); padding: 13px 16px; border-radius: 12px; color: white; background: #203934; box-shadow: 0 12px 30px rgba(0,0,0,.22); opacity: 0; transform: translateY(20px); pointer-events: none; transition: .2s ease; }
