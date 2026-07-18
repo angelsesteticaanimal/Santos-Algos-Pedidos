@@ -1,4 +1,4 @@
-const CACHE = "santos-pedidos-v3-brand";
+const CACHE = "santos-pedidos-v4-logo-exata";
 const ASSETS = ["./", "./index.html", "./styles.css", "./app.js", "./firebase-config.js", "./manifest.webmanifest", "./assets/icon-192.png", "./assets/icon-512.png", "./assets/logo-santos-alhos-clean.png"];
 
 self.addEventListener("install", event => {
