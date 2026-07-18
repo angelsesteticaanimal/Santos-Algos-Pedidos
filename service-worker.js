@@ -1,5 +1,5 @@
-const CACHE = "santos-pedidos-v1";
-const ASSETS = ["./", "./index.html", "./styles.css", "./app.js", "./firebase-config.js", "./manifest.webmanifest", "./assets/icon.svg"];
+const CACHE = "santos-pedidos-v2-logo";
+const ASSETS = ["./", "./index.html", "./styles.css", "./app.js", "./firebase-config.js", "./manifest.webmanifest", "./assets/icon-192.png", "./assets/icon-512.png", "./assets/logo-santos-alhos.jpg"];
 
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));
