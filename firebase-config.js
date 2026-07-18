@@ -1,7 +1,4 @@
-/*
-  Configuração do projeto Firebase "santos-pedidos-online".
-  O aplicativo usa o SDK compatível carregado pelo index.html.
-*/
+/* Configuração Firebase do projeto Santos Alhos Pedidos. */
 window.FIREBASE_CONFIG = {
   apiKey: "AIzaSyA5xEuSWJmaHQvGzufLqF6ybdY0qvw_i_4",
   authDomain: "santos-pedidos-online.firebaseapp.com",

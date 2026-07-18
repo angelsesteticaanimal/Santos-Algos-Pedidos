@@ -31,6 +31,8 @@ button { cursor: pointer; }
 .login-logo { width: min(260px, 78%); height: auto; margin: 0 auto; filter: drop-shadow(0 12px 20px rgba(0,0,0,.18)); }
 .sidebar-logo { width: 92px; height: 56px; flex: 0 0 92px; filter: drop-shadow(0 6px 10px rgba(0,0,0,.18)); }
 .demo-box { margin-top: 20px; padding: 14px; display: grid; gap: 5px; background: var(--primary-soft); border-radius: 14px; color: #5f453f; font-size: 13px; }
+.auth-box { gap: 8px; }
+.reset-link { justify-self: start; margin-top: 3px; font-size: 13px; }
 
 .app { min-height: 100vh; display: grid; grid-template-columns: 260px 1fr; }
 .sidebar { position: fixed; inset: 0 auto 0 0; width: 260px; display: flex; flex-direction: column; padding: 20px 14px; color: white; background: linear-gradient(180deg, #6e1217, #461012); z-index: 40; }

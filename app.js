@@ -23,8 +23,11 @@
   let currentUser = null;
   let currentView = "dashboard";
   let db = null;
+  let auth = null;
   let onlineMode = false;
   let saveTimer = null;
+  let syncUnsubscribe = null;
+  let authUnsubscribe = null;
   let savingOrder = false;
   let pendingQuickCustomer = false;
 
@@ -113,30 +116,51 @@
     return config && config.apiKey && !String(config.apiKey).startsWith("YOUR_") && config.projectId && !String(config.projectId).startsWith("YOUR_");
   }
 
-  async function initStorage() {
+  function initFirebaseServices() {
+    if (!(window.firebase && validFirebaseConfig(window.FIREBASE_CONFIG))) {
+      throw new Error("Configuração do Firebase ausente ou inválida.");
+    }
+    if (!firebase.apps.length) firebase.initializeApp(window.FIREBASE_CONFIG);
+    auth = firebase.auth();
+    db = firebase.firestore();
+  }
+
+  async function initStorageForAuthenticatedUser() {
     try {
-      if (window.firebase && validFirebaseConfig(window.FIREBASE_CONFIG)) {
-        if (!firebase.apps.length) firebase.initializeApp(window.FIREBASE_CONFIG);
-        db = firebase.firestore();
-        const doc = await db.collection("santosPedidos").doc("main").get();
-        if (doc.exists) {
-          state = normalizeState(doc.data());
-        } else {
-          state = loadLocalState();
-          await db.collection("santosPedidos").doc("main").set(state);
-        }
-        onlineMode = true;
+      const ref = db.collection("santosPedidos").doc("main");
+      const doc = await ref.get();
+      if (doc.exists) {
+        state = normalizeState(doc.data());
       } else {
         state = loadLocalState();
+        await ref.set(state);
       }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      onlineMode = true;
+      startRealtimeSync(ref);
     } catch (error) {
-      console.error("Falha ao iniciar Firebase:", error);
+      console.error("Falha ao iniciar Firestore:", error);
       state = loadLocalState();
       onlineMode = false;
-      toast("Firebase indisponível. O aplicativo entrou no modo local.", "error");
+      toast("Login realizado, mas o banco online não foi liberado. Verifique as regras do Firestore.", "error");
     }
-
     updateStorageLabels();
+  }
+
+  function startRealtimeSync(ref) {
+    if (syncUnsubscribe) syncUnsubscribe();
+    syncUnsubscribe = ref.onSnapshot(snapshot => {
+      if (!snapshot.exists) return;
+      const remoteState = normalizeState(snapshot.data());
+      if (remoteState.updatedAt === state?.updatedAt) return;
+      state = remoteState;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      if (currentUser) renderAll();
+    }, error => {
+      console.error("Falha na atualização em tempo real:", error);
+      onlineMode = false;
+      updateStorageLabels();
+    });
   }
 
   function loadLocalState() {
@@ -209,27 +233,20 @@
     });
   }
 
-  function login(username, password) {
-    const user = state.users.find(item => item.username === username && item.password === password);
-    if (!user) return false;
-    currentUser = { id: user.id, username: user.username, name: user.name, role: user.role };
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
-    enterApp();
-    return true;
+  async function login(email, password) {
+    if (!auth) throw new Error("Firebase Authentication não inicializado.");
+    await auth.signInWithEmailAndPassword(email, password);
   }
 
-  function restoreSession() {
-    try {
-      const session = JSON.parse(sessionStorage.getItem(SESSION_KEY));
-      if (!session) return false;
-      const user = state.users.find(item => item.id === session.id);
-      if (!user) return false;
-      currentUser = { id: user.id, username: user.username, name: user.name, role: user.role };
-      enterApp();
-      return true;
-    } catch {
-      return false;
-    }
+  function firebaseUserProfile(user) {
+    const email = user.email || "usuario";
+    const savedUser = state?.users?.find(item => normalizeText(item.username) === normalizeText(email));
+    return {
+      id: user.uid,
+      username: email,
+      name: user.displayName || savedUser?.name || email.split("@")[0],
+      role: savedUser?.role || "admin"
+    };
   }
 
   function enterApp() {
@@ -240,15 +257,56 @@
     $("user-avatar").textContent = currentUser.name.charAt(0).toUpperCase();
     $$(".admin-only").forEach(el => { el.style.display = currentUser.role === "admin" ? "" : "none"; });
     renderAll();
+    resetOrderForm();
     showView("dashboard");
   }
 
-  function logout() {
+  function showLogin() {
     currentUser = null;
-    sessionStorage.removeItem(SESSION_KEY);
     $("app").classList.add("hidden");
     $("login-screen").classList.remove("hidden");
     $("login-password").value = "";
+    $("storage-mode").textContent = validFirebaseConfig(window.FIREBASE_CONFIG)
+      ? "Acesso seguro com Firebase"
+      : "Firebase não configurado";
+  }
+
+  async function logout() {
+    try {
+      if (syncUnsubscribe) {
+        syncUnsubscribe();
+        syncUnsubscribe = null;
+      }
+      if (auth) await auth.signOut();
+    } catch (error) {
+      console.error("Falha ao sair:", error);
+      toast("Não foi possível encerrar a sessão.", "error");
+    }
+  }
+
+  async function resetPassword() {
+    const email = $("login-user").value.trim();
+    if (!email) {
+      toast("Digite seu e-mail para receber a recuperação de senha.", "error");
+      $("login-user").focus();
+      return;
+    }
+    try {
+      await auth.sendPasswordResetEmail(email);
+      toast("E-mail de recuperação enviado. Verifique sua caixa de entrada.");
+    } catch (error) {
+      console.error("Recuperação de senha:", error);
+      toast("Não foi possível enviar a recuperação. Confira o e-mail.", "error");
+    }
+  }
+
+  function friendlyAuthError(error) {
+    const code = error?.code || "";
+    if (["auth/invalid-credential", "auth/wrong-password", "auth/user-not-found", "auth/invalid-login-credentials"].includes(code)) return "E-mail ou senha inválidos.";
+    if (code === "auth/invalid-email") return "Digite um endereço de e-mail válido.";
+    if (code === "auth/too-many-requests") return "Muitas tentativas. Aguarde um pouco e tente novamente.";
+    if (code === "auth/network-request-failed") return "Falha de internet. Confira a conexão e tente novamente.";
+    return "Não foi possível entrar. Confira o e-mail e a senha.";
   }
 
   function showView(view) {
@@ -989,10 +1047,23 @@
   }
 
   function bindEvents() {
-    $("login-form").addEventListener("submit", event => {
+    $("login-form").addEventListener("submit", async event => {
       event.preventDefault();
-      if (!login($("login-user").value.trim(), $("login-password").value)) toast("Usuário ou senha inválidos.", "error");
+      const button = event.submitter || $("login-form").querySelector('button[type="submit"]');
+      const originalText = button.textContent;
+      button.disabled = true;
+      button.textContent = "Entrando…";
+      try {
+        await login($("login-user").value.trim(), $("login-password").value);
+      } catch (error) {
+        console.error("Falha no login:", error);
+        toast(friendlyAuthError(error), "error");
+      } finally {
+        button.disabled = false;
+        button.textContent = originalText;
+      }
     });
+    $("reset-password-btn").addEventListener("click", resetPassword);
     $("logout-btn").addEventListener("click", logout);
     $("menu-btn").addEventListener("click", () => $("sidebar").classList.toggle("open"));
     $$(".nav-btn").forEach(btn => btn.addEventListener("click", () => showView(btn.dataset.view)));
@@ -1073,10 +1144,28 @@
     const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
     $("report-start").value = localDateISO(firstDay);
     $("report-end").value = localDateISO(today);
-    await initStorage();
-    renderAll();
-    resetOrderForm();
-    restoreSession();
+
+    try {
+      initFirebaseServices();
+      $("storage-mode").textContent = "Acesso seguro com Firebase";
+      authUnsubscribe = auth.onAuthStateChanged(async user => {
+        if (!user) {
+          showLogin();
+          return;
+        }
+        $("storage-mode").textContent = "Carregando dados online…";
+        await initStorageForAuthenticatedUser();
+        currentUser = firebaseUserProfile(user);
+        enterApp();
+      });
+    } catch (error) {
+      console.error("Inicialização Firebase:", error);
+      state = loadLocalState();
+      onlineMode = false;
+      showLogin();
+      $("storage-mode").textContent = "Firebase não configurado";
+      toast("O Firebase não foi configurado corretamente.", "error");
+    }
 
     if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
       navigator.serviceWorker.register("service-worker.js").catch(error => console.warn("Service worker:", error));

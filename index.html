@@ -21,8 +21,8 @@
       <p>Pedidos online de camarão e peixe</p>
       <form id="login-form" class="form-grid one-column">
         <label>
-          Usuário
-          <input id="login-user" autocomplete="username" required placeholder="admin" />
+          E-mail
+          <input id="login-user" type="email" autocomplete="username" required placeholder="seuemail@gmail.com" />
         </label>
         <label>
           Senha
@@ -30,10 +30,10 @@
         </label>
         <button class="btn primary full" type="submit">Entrar</button>
       </form>
-      <div class="demo-box">
-        <strong>Acesso inicial</strong>
-        <span>Administrador: <b>admin</b> / <b>1234</b></span>
-        <span>Vendedor: <b>vendedor</b> / <b>1234</b></span>
+      <div class="demo-box auth-box">
+        <strong>Acesso protegido pelo Firebase</strong>
+        <span>Use o e-mail e a senha cadastrados no painel do Firebase.</span>
+        <button type="button" id="reset-password-btn" class="link-btn reset-link">Esqueci minha senha</button>
       </div>
       <small id="storage-mode">Verificando armazenamento…</small>
     </div>
@@ -314,8 +314,9 @@
     </div>
   </div>
 
-  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
   <script src="firebase-config.js"></script>
   <script src="app.js"></script>
 </body>
