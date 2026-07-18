@@ -36,11 +36,11 @@
     return {
       version: 1,
       settings: {
-        businessName: "Santos Pedidos",
+        businessName: "Santos Alhos",
         businessPhone: "21996313915",
         orderPrefix: "PED",
         nextOrderSequence: 1,
-        whatsappTemplate: "Olá, {cliente}! Seu pedido {pedido} foi registrado.\n\n{itens}\n\nTotal: {total}\nEntrega: {entrega}\n\nSantos Pedidos"
+        whatsappTemplate: "Olá, {cliente}! Seu pedido {pedido} foi registrado.\n\n{itens}\n\nTotal: {total}\nEntrega: {entrega}\n\nSantos Alhos"
       },
       users: [
         { id: "u-admin", username: "admin", password: "1234", name: "Administrador", role: "admin" },
@@ -270,7 +270,7 @@
       reports: "Relatórios",
       settings: "Configurações"
     };
-    $("page-title").textContent = titles[view] || "Santos Pedidos";
+    $("page-title").textContent = titles[view] || "Santos Alhos";
     $("sidebar").classList.remove("open");
     if (view === "new-order" && !$("order-id").value) resetOrderForm();
     if (view === "reports") renderReports();
@@ -936,7 +936,7 @@
 
   function saveSettings(event) {
     event.preventDefault();
-    state.settings.businessName = $("business-name").value.trim() || "Santos Pedidos";
+    state.settings.businessName = $("business-name").value.trim() || "Santos Alhos";
     state.settings.businessPhone = onlyDigits($("business-phone").value);
     state.settings.orderPrefix = $("order-prefix").value.trim().toUpperCase() || "PED";
     state.settings.nextOrderSequence = Math.max(1, Number($("next-order-sequence").value || 1));
