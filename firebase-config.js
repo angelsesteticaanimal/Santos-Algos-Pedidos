@@ -1,13 +1,12 @@
 /*
-  Para ativar a sincronização online, substitua os valores abaixo pelos dados
-  do seu projeto Firebase. Enquanto estiver com YOUR_, o aplicativo funciona
-  normalmente em modo local no aparelho.
+  Configuração do projeto Firebase "santos-pedidos-online".
+  O aplicativo usa o SDK compatível carregado pelo index.html.
 */
 window.FIREBASE_CONFIG = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT.appspot.com",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId: "YOUR_APP_ID"
+  apiKey: "AIzaSyA5xEuSWJmaHQvGzufLqF6ybdY0qvw_i_4",
+  authDomain: "santos-pedidos-online.firebaseapp.com",
+  projectId: "santos-pedidos-online",
+  storageBucket: "santos-pedidos-online.firebasestorage.app",
+  messagingSenderId: "744184169832",
+  appId: "1:744184169832:web:21bce356972e927d4882dd"
 };
