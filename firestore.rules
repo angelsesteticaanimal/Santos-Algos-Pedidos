@@ -6,31 +6,107 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isAdmin() {
+    function bootstrapAdmin() {
+      return signedIn() && request.auth.uid == "L1MHzZXvCqM1GRJZJxWK8hODDCv2";
+    }
+
+    function legacySeller() {
       return signedIn() && request.auth.uid == "h5fDchVPGeN3qZbtM3GgQq3Awrg1";
     }
 
+    function profileExists() {
+      return signedIn() && exists(/databases/$(database)/documents/santosUsers/$(request.auth.uid));
+    }
+
+    function profile() {
+      return get(/databases/$(database)/documents/santosUsers/$(request.auth.uid)).data;
+    }
+
+    function activeUser() {
+      return bootstrapAdmin() || (profileExists() && profile().active == true);
+    }
+
+    function isAdmin() {
+      return bootstrapAdmin() || (activeUser() && profile().role == "admin");
+    }
+
     function isSeller() {
-      return signedIn() && request.auth.uid == "L1MHzZXvCqM1GRJZJxWK8hODDCv2";
+      return activeUser() && profileExists() && profile().role == "seller";
+    }
+
+    function ownInviteId() {
+      return request.auth.token.email.lower();
+    }
+
+    function validInvite() {
+      return signedIn()
+        && request.auth.token.email != null
+        && exists(/databases/$(database)/documents/santosInvites/$(ownInviteId()))
+        && get(/databases/$(database)/documents/santosInvites/$(ownInviteId())).data.active == true
+        && get(/databases/$(database)/documents/santosInvites/$(ownInviteId())).data.status == "pending";
+    }
+
+    function validSelfProfileCreate(userId) {
+      return signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.uid == userId
+        && request.resource.data.email == request.auth.token.email.lower()
+        && request.resource.data.active == true
+        && (
+          (bootstrapAdmin() && request.resource.data.role == "admin")
+          || (legacySeller() && request.resource.data.role == "seller")
+          || (validInvite()
+            && request.resource.data.role == get(/databases/$(database)/documents/santosInvites/$(ownInviteId())).data.role)
+        );
     }
 
     function sellerUpdateAllowed() {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          "customers", "products", "orders", "settings", "updatedAt", "users"
+          "customers", "products", "orders", "settings", "updatedAt"
         ])
         && request.resource.data.settings.diff(resource.data.settings).affectedKeys().hasOnly([
           "nextOrderSequence"
         ])
         && request.resource.data.customers.size() >= resource.data.customers.size()
         && request.resource.data.products.size() >= resource.data.products.size()
-        && request.resource.data.orders.size() >= resource.data.orders.size()
-        && !request.resource.data.keys().hasAny(["users"]);
+        && request.resource.data.orders.size() >= resource.data.orders.size();
     }
 
     match /santosPedidos/main {
       allow read: if isAdmin() || isSeller();
       allow create, delete: if isAdmin();
       allow update: if isAdmin() || (isSeller() && sellerUpdateAllowed());
+    }
+
+    match /santosUsers/{userId} {
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == userId);
+      allow create: if isAdmin() || validSelfProfileCreate(userId);
+      allow update: if (
+          isAdmin()
+          && (userId != "L1MHzZXvCqM1GRJZJxWK8hODDCv2"
+            || (request.resource.data.role == "admin" && request.resource.data.active == true))
+        ) || (
+          signedIn()
+          && request.auth.uid == userId
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["name", "lastLoginAt", "updatedAt"])
+        );
+      allow delete: if isAdmin() && userId != "L1MHzZXvCqM1GRJZJxWK8hODDCv2";
+    }
+
+    match /santosInvites/{inviteId} {
+      allow read: if isAdmin()
+        || (signedIn() && request.auth.token.email != null && request.auth.token.email.lower() == inviteId);
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (
+        signedIn()
+        && request.auth.token.email != null
+        && request.auth.token.email.lower() == inviteId
+        && resource.data.active == true
+        && resource.data.status == "pending"
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "acceptedAt", "acceptedUid", "updatedAt"])
+        && request.resource.data.status == "accepted"
+        && request.resource.data.acceptedUid == request.auth.uid
+      );
     }
 
     match /{document=**} {

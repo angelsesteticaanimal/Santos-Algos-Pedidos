@@ -19,10 +19,13 @@
   const FINAL_STATUSES = ["Entregue", "Cancelado"];
   const OPEN_DELIVERY_STATUSES = ["Novo", "Confirmado", "Em separação", "Pronto", "Saiu para entrega", "Fiado"];
 
-  const ACCESS_PROFILES = Object.freeze({
-    "h5fDchVPGeN3qZbtM3GgQq3Awrg1": { name: "Geison", role: "admin" },
-    "L1MHzZXvCqM1GRJZJxWK8hODDCv2": { name: "Vendedor", role: "seller" }
-  });
+  const DATA_COLLECTION = "santosPedidos";
+  const USERS_COLLECTION = "santosUsers";
+  const INVITES_COLLECTION = "santosInvites";
+  // Perfis corrigidos: o segundo UID informado é o administrador.
+  const BOOTSTRAP_ADMIN_UID = "L1MHzZXvCqM1GRJZJxWK8hODDCv2";
+  const LEGACY_SELLER_UID = "h5fDchVPGeN3qZbtM3GgQq3Awrg1";
+  const LEGACY_SELLER_EMAIL = "rpdsrene@gmail.com";
 
   let state = null;
   let currentUser = null;
@@ -35,6 +38,12 @@
   let authUnsubscribe = null;
   let savingOrder = false;
   let pendingQuickCustomer = false;
+  let accessUsers = [];
+  let accessInvites = [];
+  let usersUnsubscribe = null;
+  let invitesUnsubscribe = null;
+  let inviteRegistrationInProgress = false;
+  let authHandling = false;
 
   const $ = id => document.getElementById(id);
   const $$ = selector => Array.from(document.querySelectorAll(selector));
@@ -128,7 +137,7 @@
 
   async function initStorageForAuthenticatedUser() {
     try {
-      const ref = db.collection("santosPedidos").doc("main");
+      const ref = db.collection(DATA_COLLECTION).doc("main");
       const doc = await ref.get();
       if (doc.exists) {
         const remoteData = doc.data();
@@ -210,7 +219,7 @@
     if (!onlineMode) return;
     const save = async () => {
       try {
-        await db.collection("santosPedidos").doc("main").set(state);
+        await db.collection(DATA_COLLECTION).doc("main").set(state);
       } catch (error) {
         console.error("Erro ao sincronizar:", error);
         toast("Dados salvos no aparelho, mas houve falha na sincronização online.", "error");
@@ -242,20 +251,144 @@
 
   async function login(email, password) {
     if (!auth) throw new Error("Firebase Authentication não inicializado.");
-    await auth.signInWithEmailAndPassword(email, password);
+    await auth.signInWithEmailAndPassword(email.trim().toLowerCase(), password);
   }
 
-  function firebaseUserProfile(user) {
-    const email = user.email || "usuario";
-    const access = ACCESS_PROFILES[user.uid];
+  function profileFromData(user, data) {
+    const email = (user.email || data?.email || "usuario").toLowerCase();
+    const forcedAdmin = user.uid === BOOTSTRAP_ADMIN_UID;
     return {
       id: user.uid,
       uid: user.uid,
       email,
       username: email,
-      name: access?.name || user.displayName || email.split("@")[0],
-      role: access?.role || "blocked"
+      name: data?.name || user.displayName || email.split("@")[0],
+      role: forcedAdmin ? "admin" : (data?.role || "blocked"),
+      active: forcedAdmin ? true : data?.active !== false
     };
+  }
+
+  async function ensureMigratedProfile(user) {
+    const ref = db.collection(USERS_COLLECTION).doc(user.uid);
+    const snapshot = await ref.get();
+    if (snapshot.exists) return snapshot.data();
+
+    let role = null;
+    let name = user.displayName || (user.email || "Usuário").split("@")[0];
+    if (user.uid === BOOTSTRAP_ADMIN_UID) {
+      role = "admin";
+      name = "Geison";
+    } else if (user.uid === LEGACY_SELLER_UID) {
+      role = "seller";
+    }
+    if (!role) return null;
+
+    const now = new Date().toISOString();
+    const profile = {
+      uid: user.uid,
+      name,
+      email: (user.email || "").toLowerCase(),
+      role,
+      active: true,
+      createdAt: now,
+      updatedAt: now,
+      lastLoginAt: now,
+      migrated: true
+    };
+    await ref.set(profile);
+    return profile;
+  }
+
+
+  async function ensureLegacyTeamProfiles() {
+    if (auth?.currentUser?.uid !== BOOTSTRAP_ADMIN_UID) return;
+    const sellerRef = db.collection(USERS_COLLECTION).doc(LEGACY_SELLER_UID);
+    const sellerSnapshot = await sellerRef.get();
+    if (!sellerSnapshot.exists) {
+      const now = new Date().toISOString();
+      await sellerRef.set({
+        uid: LEGACY_SELLER_UID,
+        name: "Vendedor",
+        email: LEGACY_SELLER_EMAIL,
+        role: "seller",
+        active: true,
+        createdAt: now,
+        updatedAt: now,
+        lastLoginAt: null,
+        migrated: true
+      });
+    }
+  }
+
+  async function loadFirebaseUserProfile(user) {
+    const data = await ensureMigratedProfile(user);
+    if (!data) return profileFromData(user, { role: "blocked", active: false });
+    const profile = profileFromData(user, data);
+    if (user.uid === BOOTSTRAP_ADMIN_UID) await ensureLegacyTeamProfiles();
+    if (!profile.active || profile.role === "blocked") return profile;
+    try {
+      await db.collection(USERS_COLLECTION).doc(user.uid).set({
+        lastLoginAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+    } catch (error) {
+      console.warn("Não foi possível atualizar o último acesso:", error);
+    }
+    return profile;
+  }
+
+  async function registerWithInvite(name, email, password, confirmation) {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!name.trim()) throw new Error("Digite seu nome.");
+    if (password.length < 6) throw new Error("A senha precisa ter pelo menos 6 caracteres.");
+    if (password !== confirmation) throw new Error("As senhas não são iguais.");
+
+    inviteRegistrationInProgress = true;
+    let createdUser = null;
+    try {
+      const credential = await auth.createUserWithEmailAndPassword(normalizedEmail, password);
+      createdUser = credential.user;
+      const inviteRef = db.collection(INVITES_COLLECTION).doc(normalizedEmail);
+      const inviteSnapshot = await inviteRef.get();
+      const invite = inviteSnapshot.exists ? inviteSnapshot.data() : null;
+      if (!invite || invite.active !== true || invite.status !== "pending") {
+        throw new Error("Não existe um convite ativo para este e-mail.");
+      }
+
+      const now = new Date().toISOString();
+      const profile = {
+        uid: createdUser.uid,
+        name: name.trim(),
+        email: normalizedEmail,
+        role: invite.role === "admin" ? "admin" : "seller",
+        active: true,
+        createdAt: now,
+        updatedAt: now,
+        lastLoginAt: now,
+        invitedByUid: invite.createdByUid || "",
+        invitedByEmail: invite.createdByEmail || ""
+      };
+      const batch = db.batch();
+      batch.set(db.collection(USERS_COLLECTION).doc(createdUser.uid), profile);
+      batch.update(inviteRef, {
+        status: "accepted",
+        acceptedAt: now,
+        acceptedUid: createdUser.uid,
+        updatedAt: now
+      });
+      await batch.commit();
+      await createdUser.updateProfile({ displayName: name.trim() }).catch(() => {});
+      closeModal("first-access-modal");
+      toast("Acesso ativado com sucesso.");
+      inviteRegistrationInProgress = false;
+      await handleAuthenticatedUser(createdUser);
+    } catch (error) {
+      inviteRegistrationInProgress = false;
+      if (createdUser) {
+        try { await createdUser.delete(); } catch (_) { await auth.signOut().catch(() => {}); }
+      }
+      throw error;
+    }
   }
 
   function auditUser() {
@@ -281,11 +414,13 @@
     $$(".admin-only").forEach(el => { el.style.display = currentUser.role === "admin" ? "" : "none"; });
     $$(".admin-financial").forEach(el => { el.style.display = currentUser.role === "admin" ? "" : "none"; });
     renderAll();
+    startAccessManagementSync();
     resetOrderForm();
     showView("dashboard");
   }
 
   function showLogin() {
+    stopAccessManagementSync();
     currentUser = null;
     $("app").classList.add("hidden");
     $("login-screen").classList.remove("hidden");
@@ -301,6 +436,7 @@
         syncUnsubscribe();
         syncUnsubscribe = null;
       }
+      stopAccessManagementSync();
       if (auth) await auth.signOut();
     } catch (error) {
       console.error("Falha ao sair:", error);
@@ -330,11 +466,14 @@
     if (code === "auth/invalid-email") return "Digite um endereço de e-mail válido.";
     if (code === "auth/too-many-requests") return "Muitas tentativas. Aguarde um pouco e tente novamente.";
     if (code === "auth/network-request-failed") return "Falha de internet. Confira a conexão e tente novamente.";
-    return "Não foi possível entrar. Confira o e-mail e a senha.";
+    if (code === "auth/email-already-in-use") return "Este e-mail já possui uma conta. Use Entrar ou Esqueci minha senha.";
+    if (code === "auth/weak-password") return "Crie uma senha com pelo menos 6 caracteres.";
+    if (error?.message && !String(error.message).startsWith("Firebase:")) return error.message;
+    return "Não foi possível concluir. Confira os dados informados.";
   }
 
   function showView(view) {
-    if (view === "reports" || view === "settings") {
+    if (["reports", "settings", "users"].includes(view)) {
       if (currentUser?.role !== "admin") return;
     }
     currentView = view;
@@ -350,12 +489,14 @@
       products: "Produtos",
       deliveries: "Entregas",
       reports: "Relatórios",
+      users: "Usuários",
       settings: "Configurações"
     };
     $("page-title").textContent = titles[view] || "Santos Alhos";
     $("sidebar").classList.remove("open");
     if (view === "new-order" && !$("order-id").value) resetOrderForm();
     if (view === "reports") renderReports();
+    if (view === "users") renderAccessManagement();
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -1030,6 +1171,171 @@
     $(id).innerHTML = items.length ? items.map((item, index) => `<div class="ranking-item"><span class="ranking-number">${index + 1}</span><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.value)}</span></div>`).join("") : '<div class="empty-state">Sem dados no período.</div>';
   }
 
+  function stopAccessManagementSync() {
+    if (usersUnsubscribe) usersUnsubscribe();
+    if (invitesUnsubscribe) invitesUnsubscribe();
+    usersUnsubscribe = null;
+    invitesUnsubscribe = null;
+    accessUsers = [];
+    accessInvites = [];
+  }
+
+  function startAccessManagementSync() {
+    stopAccessManagementSync();
+    if (!db || currentUser?.role !== "admin") return;
+    usersUnsubscribe = db.collection(USERS_COLLECTION).onSnapshot(snapshot => {
+      accessUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+        .sort((a, b) => String(a.name || a.email).localeCompare(String(b.name || b.email), "pt-BR"));
+      renderAccessManagement();
+    }, error => console.error("Usuários:", error));
+    invitesUnsubscribe = db.collection(INVITES_COLLECTION).onSnapshot(snapshot => {
+      accessInvites = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+        .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+      renderAccessManagement();
+    }, error => console.error("Convites:", error));
+  }
+
+  function roleLabel(role) {
+    return role === "admin" ? "Administrador" : "Vendedor";
+  }
+
+  function inviteStatusLabel(invite) {
+    if (invite.active === false) return "Bloqueado";
+    if (invite.status === "accepted") return "Aceito";
+    return "Pendente";
+  }
+
+  function renderAccessManagement() {
+    const usersEl = $("access-users-list");
+    const invitesEl = $("access-invites-list");
+    if (!usersEl || !invitesEl || currentUser?.role !== "admin") return;
+
+    usersEl.innerHTML = accessUsers.length ? accessUsers.map(user => {
+      const isSelf = user.id === currentUser.uid;
+      const active = user.id === BOOTSTRAP_ADMIN_UID ? true : user.active !== false;
+      return `<article class="access-card">
+        <div class="access-card-head"><div><h4>${escapeHtml(user.name || "Usuário")}</h4><p>${escapeHtml(user.email || "")}</p></div><span class="status-badge ${active ? "active" : "blocked"}">${active ? "Ativo" : "Bloqueado"}</span></div>
+        <div class="access-meta"><span class="role-badge ${user.role === "admin" ? "admin" : "seller"}">${roleLabel(user.role)}</span>${isSelf ? '<span class="badge">Sua conta</span>' : ""}</div>
+        <div class="access-actions">
+          ${isSelf ? "" : `<button class="action-mini" data-user-role="${user.id}">${user.role === "admin" ? "Tornar vendedor" : "Tornar administrador"}</button>`}
+          ${isSelf || user.id === BOOTSTRAP_ADMIN_UID ? "" : `<button class="action-mini" data-user-toggle="${user.id}">${active ? "Bloquear" : "Reativar"}</button>`}
+        </div>
+      </article>`;
+    }).join("") : '<div class="empty-state">Nenhum usuário cadastrado.</div>';
+
+    invitesEl.innerHTML = accessInvites.length ? accessInvites.map(invite => {
+      const status = inviteStatusLabel(invite);
+      const statusClass = invite.active === false ? "blocked" : invite.status === "accepted" ? "accepted" : "pending";
+      return `<article class="access-card">
+        <div class="access-card-head"><div><h4>${escapeHtml(invite.name || "Convidado")}</h4><p>${escapeHtml(invite.email || invite.id)}</p></div><span class="status-badge ${statusClass}">${status}</span></div>
+        <div class="access-meta"><span class="role-badge ${invite.role === "admin" ? "admin" : "seller"}">${roleLabel(invite.role)}</span></div>
+        <div class="access-actions">
+          ${invite.status !== "accepted" ? `<button class="action-mini" data-invite-copy="${escapeHtml(invite.id)}">Copiar convite</button><button class="action-mini" data-invite-whatsapp="${escapeHtml(invite.id)}">WhatsApp</button>` : ""}
+          <button class="action-mini" data-invite-toggle="${escapeHtml(invite.id)}">${invite.active === false ? "Reativar" : "Bloquear"}</button>
+          <button class="action-mini" data-invite-delete="${escapeHtml(invite.id)}">Excluir</button>
+        </div>
+      </article>`;
+    }).join("") : '<div class="empty-state">Nenhum convite criado.</div>';
+  }
+
+  function openInviteModal() {
+    if (!requireAdmin()) return;
+    $("invite-form").reset();
+    $("invite-role").value = "seller";
+    $("invite-active").value = "true";
+    openModal("invite-modal");
+    setTimeout(() => $("invite-name").focus(), 50);
+  }
+
+  async function saveInvite(event) {
+    event.preventDefault();
+    if (!requireAdmin()) return;
+    const name = $("invite-name").value.trim();
+    const email = $("invite-email").value.trim().toLowerCase();
+    const role = $("invite-role").value === "admin" ? "admin" : "seller";
+    const active = $("invite-active").value === "true";
+    if (!name || !email) return toast("Preencha o nome e o e-mail.", "error");
+    if (email.includes("/")) return toast("Este endereço de e-mail não pode ser usado no convite.", "error");
+    const existing = accessUsers.find(user => String(user.email || "").toLowerCase() === email);
+    if (existing) return toast("Este e-mail já possui acesso ao aplicativo.", "error");
+    const now = new Date().toISOString();
+    try {
+      await db.collection(INVITES_COLLECTION).doc(email).set({
+        name, email, role, active, status: "pending",
+        createdAt: now, updatedAt: now,
+        createdByUid: currentUser.uid,
+        createdByEmail: currentUser.email,
+        acceptedAt: null,
+        acceptedUid: null
+      });
+      closeModal("invite-modal");
+      toast("Convite criado. Agora compartilhe o link com o vendedor.");
+    } catch (error) {
+      console.error("Convite:", error);
+      toast("Não foi possível criar o convite. Confira as regras do Firebase.", "error");
+    }
+  }
+
+  function inviteLink(email) {
+    const url = new URL(window.location.href);
+    url.hash = "";
+    url.search = "";
+    url.searchParams.set("convite", email);
+    return url.toString();
+  }
+
+  async function copyInvite(email) {
+    const invite = accessInvites.find(item => item.id === email);
+    const text = `Olá, ${invite?.name || ""}! Você foi convidado para acessar o Santos Alhos Pedidos. Abra o link, toque em “Primeiro acesso com convite” e crie sua senha:\n${inviteLink(email)}\n\nE-mail autorizado: ${email}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      toast("Convite copiado.");
+    } catch (_) {
+      window.prompt("Copie o convite abaixo:", text);
+    }
+  }
+
+  function shareInviteWhatsApp(email) {
+    const invite = accessInvites.find(item => item.id === email);
+    const text = `Olá, ${invite?.name || ""}! Você foi convidado para acessar o Santos Alhos Pedidos. Abra o link, toque em Primeiro acesso com convite e crie sua senha.\n\n${inviteLink(email)}\n\nE-mail autorizado: ${email}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank", "noopener");
+  }
+
+  async function toggleUser(userId) {
+    if (!requireAdmin()) return;
+    const user = accessUsers.find(item => item.id === userId);
+    if (!user || userId === currentUser.uid || userId === BOOTSTRAP_ADMIN_UID) return;
+    const next = user.active === false;
+    if (!confirmAction(`${next ? "Reativar" : "Bloquear"} o acesso de ${user.name || user.email}?`)) return;
+    await db.collection(USERS_COLLECTION).doc(userId).set({ active: next, updatedAt: new Date().toISOString() }, { merge: true });
+    toast(next ? "Usuário reativado." : "Usuário bloqueado.");
+  }
+
+  async function changeUserRole(userId) {
+    if (!requireAdmin()) return;
+    const user = accessUsers.find(item => item.id === userId);
+    if (!user || userId === currentUser.uid || userId === BOOTSTRAP_ADMIN_UID) return;
+    const nextRole = user.role === "admin" ? "seller" : "admin";
+    if (!confirmAction(`Alterar ${user.name || user.email} para ${roleLabel(nextRole)}?`)) return;
+    await db.collection(USERS_COLLECTION).doc(userId).set({ role: nextRole, updatedAt: new Date().toISOString() }, { merge: true });
+    toast("Perfil atualizado.");
+  }
+
+  async function toggleInvite(email) {
+    if (!requireAdmin()) return;
+    const invite = accessInvites.find(item => item.id === email);
+    if (!invite) return;
+    const next = invite.active === false;
+    await db.collection(INVITES_COLLECTION).doc(email).set({ active: next, updatedAt: new Date().toISOString() }, { merge: true });
+    toast(next ? "Convite reativado." : "Convite bloqueado.");
+  }
+
+  async function deleteInvite(email) {
+    if (!requireAdmin() || !confirmAction(`Excluir o convite de ${email}?`)) return;
+    await db.collection(INVITES_COLLECTION).doc(email).delete();
+    toast("Convite excluído.");
+  }
+
   function renderSettings() {
     if (!state) return;
     $("business-name").value = state.settings.businessName || "";
@@ -1114,6 +1420,23 @@
       }
     });
     $("reset-password-btn").addEventListener("click", resetPassword);
+    $("first-access-btn").addEventListener("click", () => openModal("first-access-modal"));
+    $("first-access-form").addEventListener("submit", async event => {
+      event.preventDefault();
+      const button = event.submitter;
+      const originalText = button.textContent;
+      button.disabled = true;
+      button.textContent = "Ativando…";
+      try {
+        await registerWithInvite($("first-access-name").value, $("first-access-email").value, $("first-access-password").value, $("first-access-confirm").value);
+      } catch (error) {
+        console.error("Primeiro acesso:", error);
+        toast(friendlyAuthError(error), "error");
+      } finally {
+        button.disabled = false;
+        button.textContent = originalText;
+      }
+    });
     $("logout-btn").addEventListener("click", logout);
     $("menu-btn").addEventListener("click", () => $("sidebar").classList.toggle("open"));
     $$(".nav-btn").forEach(btn => btn.addEventListener("click", () => showView(btn.dataset.view)));
@@ -1153,6 +1476,9 @@
     $("add-product-btn").addEventListener("click", () => openProductModal());
     $("product-form").addEventListener("submit", saveProduct);
     $("settings-form").addEventListener("submit", saveSettings);
+    $("add-invite-btn").addEventListener("click", openInviteModal);
+    $("invite-form").addEventListener("submit", saveInvite);
+    $("refresh-access-btn").addEventListener("click", startAccessManagementSync);
     $("export-data-btn").addEventListener("click", exportData);
     $("import-data-input").addEventListener("change", event => { if (event.target.files[0]) importData(event.target.files[0]); event.target.value = ""; });
 
@@ -1164,7 +1490,7 @@
     $("apply-report-filter").addEventListener("click", renderReports);
 
     document.addEventListener("click", event => {
-      const target = event.target.closest("[data-order-detail],[data-order-edit],[data-order-whatsapp],[data-order-map],[data-order-delivered],[data-order-delete],[data-customer-edit],[data-customer-delete],[data-customer-order],[data-customer-map],[data-product-edit],[data-product-delete]");
+      const target = event.target.closest("[data-order-detail],[data-order-edit],[data-order-whatsapp],[data-order-map],[data-order-delivered],[data-order-delete],[data-customer-edit],[data-customer-delete],[data-customer-order],[data-customer-map],[data-product-edit],[data-product-delete],[data-user-toggle],[data-user-role],[data-invite-copy],[data-invite-whatsapp],[data-invite-toggle],[data-invite-delete]");
       if (!target) return;
       if (target.dataset.orderDetail) openOrderDetail(target.dataset.orderDetail);
       else if (target.dataset.orderEdit) editOrder(target.dataset.orderEdit);
@@ -1178,11 +1504,39 @@
       else if (target.dataset.customerMap) customerMap(target.dataset.customerMap);
       else if (target.dataset.productEdit) openProductModal(getProduct(target.dataset.productEdit));
       else if (target.dataset.productDelete) deleteProduct(target.dataset.productDelete);
+      else if (target.dataset.userToggle) toggleUser(target.dataset.userToggle);
+      else if (target.dataset.userRole) changeUserRole(target.dataset.userRole);
+      else if (target.dataset.inviteCopy) copyInvite(target.dataset.inviteCopy);
+      else if (target.dataset.inviteWhatsapp) shareInviteWhatsApp(target.dataset.inviteWhatsapp);
+      else if (target.dataset.inviteToggle) toggleInvite(target.dataset.inviteToggle);
+      else if (target.dataset.inviteDelete) deleteInvite(target.dataset.inviteDelete);
     });
 
     document.addEventListener("keydown", event => {
       if (event.key === "Escape") $$(".modal.open").forEach(modal => closeModal(modal.id));
     });
+  }
+
+  async function handleAuthenticatedUser(user) {
+    if (authHandling) return;
+    authHandling = true;
+    try {
+      currentUser = await loadFirebaseUserProfile(user);
+      if (!currentUser.active || currentUser.role === "blocked") {
+        toast("Esta conta não possui convite ativo ou está bloqueada.", "error");
+        await auth.signOut();
+        return;
+      }
+      $("storage-mode").textContent = "Carregando dados online…";
+      await initStorageForAuthenticatedUser();
+      enterApp();
+    } catch (error) {
+      console.error("Autorização:", error);
+      toast("Não foi possível validar seu perfil de acesso.", "error");
+      await auth.signOut().catch(() => {});
+    } finally {
+      authHandling = false;
+    }
   }
 
   async function init() {
@@ -1195,23 +1549,23 @@
     $("report-start").value = localDateISO(firstDay);
     $("report-end").value = localDateISO(today);
 
+    const invitedEmail = new URLSearchParams(window.location.search).get("convite");
+    if (invitedEmail) {
+      $("login-user").value = invitedEmail;
+      $("first-access-email").value = invitedEmail;
+      setTimeout(() => openModal("first-access-modal"), 250);
+    }
+
     try {
       initFirebaseServices();
       $("storage-mode").textContent = "Acesso seguro com Firebase";
       authUnsubscribe = auth.onAuthStateChanged(async user => {
+        if (inviteRegistrationInProgress) return;
         if (!user) {
           showLogin();
           return;
         }
-        currentUser = firebaseUserProfile(user);
-        if (currentUser.role === "blocked") {
-          toast("Esta conta não possui autorização para acessar o aplicativo.", "error");
-          await auth.signOut();
-          return;
-        }
-        $("storage-mode").textContent = "Carregando dados online…";
-        await initStorageForAuthenticatedUser();
-        enterApp();
+        await handleAuthenticatedUser(user);
       });
     } catch (error) {
       console.error("Inicialização Firebase:", error);

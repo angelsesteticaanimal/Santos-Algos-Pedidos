@@ -250,3 +250,28 @@ td { font-size: 13px; }
   .modal { padding: 8px; align-items: flex-end; }
   .modal-card { max-height: 94vh; padding: 18px; border-radius: 20px 20px 0 0; }
 }
+
+
+/* Usuários e convites */
+.first-access-btn { margin-top: 10px; }
+.access-help { display: grid; gap: 5px; padding: 15px 17px; margin-bottom: 18px; border: 1px solid #ead7b0; border-radius: 14px; background: #fff8e7; color: #654d24; }
+.access-help span { font-size: 13px; line-height: 1.45; }
+.access-columns { align-items: start; }
+.access-list { display: grid; gap: 11px; }
+.access-card { padding: 15px; border: 1px solid var(--line); border-radius: 14px; background: #fffdfb; }
+.access-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.access-card h4 { margin: 0 0 4px; }
+.access-card p { margin: 0; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.access-meta { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+.access-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 14px; }
+.role-badge, .status-badge { display: inline-flex; align-items: center; min-height: 26px; padding: 4px 9px; border-radius: 999px; font-size: 11px; font-weight: 850; }
+.role-badge.admin { color: #7a4d00; background: #ffedc7; }
+.role-badge.seller { color: #6b2024; background: #f8e4e2; }
+.status-badge.active, .status-badge.accepted { color: #126943; background: #e1f4e9; }
+.status-badge.pending { color: #8a5b00; background: #fff3d8; }
+.status-badge.blocked { color: #a32c2c; background: #fde8e8; }
+.invite-note { margin-top: 15px; padding: 12px 14px; border-radius: 12px; background: var(--primary-soft); color: #604640; font-size: 13px; line-height: 1.45; }
+@media (max-width: 580px) {
+  .access-card-head { flex-direction: column; }
+  .access-actions .btn, .access-actions .action-mini { flex: 1 1 130px; }
+}

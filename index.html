@@ -34,6 +34,7 @@
         <strong>Acesso protegido pelo Firebase</strong>
         <span>Use o e-mail e a senha cadastrados no painel do Firebase.</span>
         <button type="button" id="reset-password-btn" class="link-btn reset-link">Esqueci minha senha</button>
+        <button type="button" id="first-access-btn" class="btn secondary full first-access-btn">Primeiro acesso com convite</button>
       </div>
       <small id="storage-mode">Verificando armazenamento…</small>
     </div>
@@ -57,6 +58,7 @@
         <button class="nav-btn" data-view="products"><span>🦐</span> Produtos</button>
         <button class="nav-btn" data-view="deliveries"><span>🚚</span> Entregas</button>
         <button class="nav-btn admin-only" data-view="reports"><span>▥</span> Relatórios</button>
+        <button class="nav-btn admin-only" data-view="users"><span>👤</span> Usuários</button>
         <button class="nav-btn admin-only" data-view="settings"><span>⚙</span> Configurações</button>
       </nav>
 
@@ -91,9 +93,9 @@
 
         <div class="stats-grid">
           <article class="stat-card"><span>Pedidos hoje</span><strong id="stat-orders-today">0</strong><small id="stat-orders-open">0 em andamento</small></article>
-          <article class="stat-card admin-financial"><span>Vendas hoje</span><strong id="stat-sales-today">R$ 0,00</strong><small>Pedidos não cancelados</small></article>
+          <article class="stat-card"><span>Vendas hoje</span><strong id="stat-sales-today">R$ 0,00</strong><small>Pedidos não cancelados</small></article>
           <article class="stat-card"><span>Entregas pendentes</span><strong id="stat-deliveries">0</strong><small>Para organizar a rota</small></article>
-          <article class="stat-card admin-financial"><span>Fiado em aberto</span><strong id="stat-credit">R$ 0,00</strong><small>Valores ainda pendentes</small></article>
+          <article class="stat-card"><span>Fiado em aberto</span><strong id="stat-credit">R$ 0,00</strong><small>Valores ainda pendentes</small></article>
         </div>
 
         <div class="content-grid two-columns">
@@ -247,6 +249,30 @@
         </div>
       </section>
 
+
+      <section class="view" id="view-users">
+        <div class="panel">
+          <div class="panel-head wrap">
+            <div><h3>Usuários e convites</h3><p>Autorize vendedores sem copiar UID nem alterar códigos</p></div>
+            <div class="actions-row"><button class="btn ghost compact" id="refresh-access-btn">Atualizar</button><button class="btn primary" id="add-invite-btn">＋ Convidar vendedor</button></div>
+          </div>
+          <div class="access-help">
+            <strong>Como funciona</strong>
+            <span>Cadastre o nome e o e-mail. Depois compartilhe o link do convite. O vendedor cria a própria senha no primeiro acesso.</span>
+          </div>
+          <div class="content-grid two-columns access-columns">
+            <article class="panel nested">
+              <div class="panel-head"><div><h3>Usuários cadastrados</h3><p>Contas que já aceitaram o convite</p></div></div>
+              <div id="access-users-list" class="access-list"><div class="empty-state">Carregando usuários…</div></div>
+            </article>
+            <article class="panel nested">
+              <div class="panel-head"><div><h3>Convites</h3><p>Pendentes, aceitos e bloqueados</p></div></div>
+              <div id="access-invites-list" class="access-list"><div class="empty-state">Carregando convites…</div></div>
+            </article>
+          </div>
+        </div>
+      </section>
+
       <section class="view" id="view-settings">
         <div class="panel settings-panel">
           <div class="panel-head"><div><h3>Configurações</h3><p>Informações do negócio e armazenamento</p></div></div>
@@ -302,6 +328,39 @@
           <label class="span-2">Descrição<textarea id="product-description" rows="3"></textarea></label>
         </div>
         <div class="form-actions"><button type="button" class="btn ghost" data-close-modal="product-modal">Cancelar</button><button type="submit" class="btn primary">Salvar produto</button></div>
+      </form>
+    </div>
+  </div>
+
+
+  <div class="modal" id="first-access-modal" aria-hidden="true">
+    <div class="modal-card">
+      <div class="modal-head"><div><h3>Primeiro acesso</h3><p>Use exatamente o e-mail autorizado pelo administrador</p></div><button class="icon-btn" data-close-modal="first-access-modal">✕</button></div>
+      <form id="first-access-form">
+        <div class="form-grid one-column">
+          <label>Seu nome<input id="first-access-name" required autocomplete="name" /></label>
+          <label>E-mail convidado<input id="first-access-email" type="email" required autocomplete="email" /></label>
+          <label>Crie uma senha<input id="first-access-password" type="password" minlength="6" required autocomplete="new-password" /></label>
+          <label>Confirme a senha<input id="first-access-confirm" type="password" minlength="6" required autocomplete="new-password" /></label>
+        </div>
+        <div class="invite-note">A senha é criada pelo próprio vendedor e não fica visível para o administrador.</div>
+        <div class="form-actions"><button type="button" class="btn ghost" data-close-modal="first-access-modal">Cancelar</button><button type="submit" class="btn primary">Ativar meu acesso</button></div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal" id="invite-modal" aria-hidden="true">
+    <div class="modal-card">
+      <div class="modal-head"><div><h3>Novo convite</h3><p>Autorize um vendedor ou outro administrador</p></div><button class="icon-btn" data-close-modal="invite-modal">✕</button></div>
+      <form id="invite-form">
+        <div class="form-grid two-columns">
+          <label>Nome<input id="invite-name" required /></label>
+          <label>E-mail<input id="invite-email" type="email" required /></label>
+          <label>Perfil<select id="invite-role"><option value="seller">Vendedor</option><option value="admin">Administrador</option></select></label>
+          <label>Situação<select id="invite-active"><option value="true">Ativo</option><option value="false">Bloqueado</option></select></label>
+        </div>
+        <div class="invite-note">Depois de salvar, compartilhe o link exibido na lista de convites.</div>
+        <div class="form-actions"><button type="button" class="btn ghost" data-close-modal="invite-modal">Cancelar</button><button type="submit" class="btn primary">Criar convite</button></div>
       </form>
     </div>
   </div>
