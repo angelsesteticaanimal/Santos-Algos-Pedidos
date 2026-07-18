@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b5d50" />
+  <meta name="description" content="Talão digital para pedidos de camarão, peixe e entregas." />
+  <title>Santos Pedidos Online</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <section id="login-screen" class="login-screen">
+    <div class="login-card">
+      <div class="brand-mark">SP</div>
+      <h1>Santos Pedidos</h1>
+      <p>Talão digital de camarão e peixe</p>
+      <form id="login-form" class="form-grid one-column">
+        <label>
+          Usuário
+          <input id="login-user" autocomplete="username" required placeholder="admin" />
+        </label>
+        <label>
+          Senha
+          <input id="login-password" type="password" autocomplete="current-password" required placeholder="••••" />
+        </label>
+        <button class="btn primary full" type="submit">Entrar</button>
+      </form>
+      <div class="demo-box">
+        <strong>Acesso inicial</strong>
+        <span>Administrador: <b>admin</b> / <b>1234</b></span>
+        <span>Vendedor: <b>vendedor</b> / <b>1234</b></span>
+      </div>
+      <small id="storage-mode">Verificando armazenamento…</small>
+    </div>
+  </section>
+
+  <div id="app" class="app hidden">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-mark small">SP</div>
+        <div>
+          <strong>Santos Pedidos</strong>
+          <span>Online</span>
+        </div>
+      </div>
+
+      <nav class="main-nav" aria-label="Navegação principal">
+        <button class="nav-btn active" data-view="dashboard"><span>⌂</span> Início</button>
+        <button class="nav-btn" data-view="new-order"><span>＋</span> Novo pedido</button>
+        <button class="nav-btn" data-view="orders"><span>▤</span> Pedidos</button>
+        <button class="nav-btn" data-view="customers"><span>👥</span> Clientes</button>
+        <button class="nav-btn" data-view="products"><span>🦐</span> Produtos</button>
+        <button class="nav-btn" data-view="deliveries"><span>🚚</span> Entregas</button>
+        <button class="nav-btn admin-only" data-view="reports"><span>▥</span> Relatórios</button>
+        <button class="nav-btn admin-only" data-view="settings"><span>⚙</span> Configurações</button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="user-chip">
+          <span id="user-avatar">A</span>
+          <div><strong id="user-name">Administrador</strong><small id="user-role">Administrador</small></div>
+        </div>
+        <button id="logout-btn" class="btn ghost full">Sair</button>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <button id="menu-btn" class="icon-btn" aria-label="Abrir menu">☰</button>
+        <div>
+          <h2 id="page-title">Visão geral</h2>
+          <p id="today-label"></p>
+        </div>
+        <button class="btn primary compact" data-open-view="new-order">＋ Pedido</button>
+      </header>
+
+      <section class="view active" id="view-dashboard">
+        <div class="hero-card">
+          <div>
+            <span class="eyebrow">Resumo do dia</span>
+            <h3>Organize pedidos e entregas em um só lugar</h3>
+            <p>Cadastre, acompanhe e encontre clientes por bairro, cidade ou endereço.</p>
+          </div>
+          <button class="btn light" data-open-view="new-order">Criar pedido</button>
+        </div>
+
+        <div class="stats-grid">
+          <article class="stat-card"><span>Pedidos hoje</span><strong id="stat-orders-today">0</strong><small id="stat-orders-open">0 em andamento</small></article>
+          <article class="stat-card"><span>Vendas hoje</span><strong id="stat-sales-today">R$ 0,00</strong><small>Pedidos não cancelados</small></article>
+          <article class="stat-card"><span>Entregas pendentes</span><strong id="stat-deliveries">0</strong><small>Para organizar a rota</small></article>
+          <article class="stat-card"><span>Fiado em aberto</span><strong id="stat-credit">R$ 0,00</strong><small>Valores ainda pendentes</small></article>
+        </div>
+
+        <div class="content-grid two-columns">
+          <article class="panel">
+            <div class="panel-head"><div><h3>Pedidos recentes</h3><p>Últimos lançamentos</p></div><button class="link-btn" data-open-view="orders">Ver todos</button></div>
+            <div id="recent-orders" class="list-stack empty-state">Nenhum pedido cadastrado.</div>
+          </article>
+          <article class="panel">
+            <div class="panel-head"><div><h3>Entregas por região</h3><p>Pedidos pendentes agrupados</p></div><button class="link-btn" data-open-view="deliveries">Abrir entregas</button></div>
+            <div id="region-summary" class="list-stack empty-state">Nenhuma entrega pendente.</div>
+          </article>
+        </div>
+      </section>
+
+      <section class="view" id="view-new-order">
+        <form id="order-form" class="panel form-panel">
+          <input type="hidden" id="order-id" />
+          <div class="panel-head">
+            <div><h3 id="order-form-title">Novo pedido</h3><p id="next-order-number">Número automático</p></div>
+            <button type="button" id="clear-order-btn" class="btn ghost">Limpar</button>
+          </div>
+
+          <div class="form-section">
+            <h4>Cliente</h4>
+            <div class="form-grid three-columns">
+              <label class="span-2">Cliente
+                <div class="input-action">
+                  <select id="order-customer" required></select>
+                  <button type="button" class="icon-btn outlined" id="quick-customer-btn" title="Cadastrar cliente">＋</button>
+                </div>
+              </label>
+              <label>Data do pedido<input type="date" id="order-date" required /></label>
+              <label>Data de entrega<input type="date" id="delivery-date" /></label>
+              <label>Horário<input type="time" id="delivery-time" /></label>
+              <label>Status<select id="order-status"></select></label>
+            </div>
+          </div>
+
+          <div class="form-section">
+            <div class="section-title-row"><h4>Itens do pedido</h4><button type="button" class="btn secondary compact" id="add-item-btn">＋ Adicionar produto</button></div>
+            <div id="order-items" class="order-items"></div>
+          </div>
+
+          <div class="form-section">
+            <h4>Pagamento e entrega</h4>
+            <div class="form-grid three-columns">
+              <label>Forma de pagamento<select id="payment-method"></select></label>
+              <label>Desconto (R$)<input type="number" id="order-discount" min="0" step="0.01" value="0" /></label>
+              <label>Taxa de entrega (R$)<input type="number" id="delivery-fee" min="0" step="0.01" value="0" /></label>
+              <label class="span-2">Endereço da entrega<input id="order-address" placeholder="Preenchido pelo cadastro do cliente" /></label>
+              <label>Bairro/Região<input id="order-region" placeholder="Ex.: Centro" /></label>
+              <label class="span-3">Observações<textarea id="order-notes" rows="3" placeholder="Ponto de referência, preparo, preferência do cliente…"></textarea></label>
+            </div>
+          </div>
+
+          <div class="order-summary">
+            <div><span>Subtotal</span><strong id="order-subtotal">R$ 0,00</strong></div>
+            <div><span>Desconto</span><strong id="order-discount-preview">R$ 0,00</strong></div>
+            <div><span>Entrega</span><strong id="delivery-fee-preview">R$ 0,00</strong></div>
+            <div class="grand-total"><span>Total</span><strong id="order-total">R$ 0,00</strong></div>
+          </div>
+
+          <div class="form-actions">
+            <button type="button" class="btn ghost" data-open-view="orders">Cancelar</button>
+            <button type="submit" class="btn primary" id="save-order-btn">Salvar pedido</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="view" id="view-orders">
+        <div class="panel">
+          <div class="panel-head wrap">
+            <div><h3>Pedidos</h3><p>Consulte e acompanhe todos os pedidos</p></div>
+            <button class="btn primary" data-open-view="new-order">＋ Novo pedido</button>
+          </div>
+          <div class="filter-bar">
+            <input id="order-search" placeholder="Buscar por cliente, número, telefone ou bairro" />
+            <select id="order-status-filter"><option value="">Todos os status</option></select>
+            <input type="date" id="order-date-filter" />
+            <button id="clear-order-filters" class="btn ghost compact">Limpar</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Pedido</th><th>Cliente</th><th>Data</th><th>Entrega</th><th>Status</th><th>Total</th><th>Ações</th></tr></thead>
+              <tbody id="orders-table"></tbody>
+            </table>
+          </div>
+          <div id="orders-mobile" class="mobile-cards"></div>
+        </div>
+      </section>
+
+      <section class="view" id="view-customers">
+        <div class="panel">
+          <div class="panel-head wrap">
+            <div><h3>Clientes</h3><p>Busque por nome, telefone, bairro, cidade ou endereço</p></div>
+            <button class="btn primary" id="add-customer-btn">＋ Novo cliente</button>
+          </div>
+          <div class="filter-bar">
+            <input id="customer-search" placeholder="Pesquisar cliente ou localização" />
+            <select id="customer-city-filter"><option value="">Todas as cidades</option></select>
+            <select id="customer-region-filter"><option value="">Todos os bairros</option></select>
+          </div>
+          <div id="customers-grid" class="cards-grid"></div>
+        </div>
+      </section>
+
+      <section class="view" id="view-products">
+        <div class="panel">
+          <div class="panel-head wrap">
+            <div><h3>Produtos</h3><p>Cadastre camarões, peixes, preços e estoque</p></div>
+            <button class="btn primary admin-only" id="add-product-btn">＋ Novo produto</button>
+          </div>
+          <div class="filter-bar">
+            <input id="product-search" placeholder="Buscar produto" />
+            <select id="product-category-filter"><option value="">Todas as categorias</option></select>
+          </div>
+          <div id="products-grid" class="cards-grid products"></div>
+        </div>
+      </section>
+
+      <section class="view" id="view-deliveries">
+        <div class="panel">
+          <div class="panel-head wrap">
+            <div><h3>Entregas</h3><p>Organize os pedidos por região e situação</p></div>
+          </div>
+          <div class="filter-bar">
+            <input type="date" id="delivery-date-filter" />
+            <select id="delivery-region-filter"><option value="">Todas as regiões</option></select>
+            <select id="delivery-status-filter"><option value="">Pendentes e entregues</option></select>
+          </div>
+          <div id="deliveries-list" class="delivery-groups"></div>
+        </div>
+      </section>
+
+      <section class="view" id="view-reports">
+        <div class="panel">
+          <div class="panel-head wrap"><div><h3>Relatórios</h3><p>Resultados do período selecionado</p></div></div>
+          <div class="filter-bar"><input type="date" id="report-start" /><input type="date" id="report-end" /><button id="apply-report-filter" class="btn primary compact">Atualizar</button></div>
+          <div class="stats-grid reports">
+            <article class="stat-card"><span>Faturamento</span><strong id="report-sales">R$ 0,00</strong><small>No período</small></article>
+            <article class="stat-card"><span>Pedidos</span><strong id="report-orders">0</strong><small>Não cancelados</small></article>
+            <article class="stat-card"><span>Ticket médio</span><strong id="report-ticket">R$ 0,00</strong><small>Valor por pedido</small></article>
+            <article class="stat-card"><span>Fiado pendente</span><strong id="report-credit">R$ 0,00</strong><small>No período</small></article>
+          </div>
+          <div class="content-grid two-columns">
+            <article class="panel nested"><div class="panel-head"><div><h3>Produtos mais vendidos</h3><p>Por quantidade</p></div></div><div id="top-products" class="ranking-list"></div></article>
+            <article class="panel nested"><div class="panel-head"><div><h3>Clientes que mais compraram</h3><p>Por valor</p></div></div><div id="top-customers" class="ranking-list"></div></article>
+            <article class="panel nested"><div class="panel-head"><div><h3>Vendas por região</h3><p>Bairro ou cidade</p></div></div><div id="sales-by-region" class="ranking-list"></div></article>
+            <article class="panel nested"><div class="panel-head"><div><h3>Formas de pagamento</h3><p>Distribuição das vendas</p></div></div><div id="sales-by-payment" class="ranking-list"></div></article>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-settings">
+        <div class="panel settings-panel">
+          <div class="panel-head"><div><h3>Configurações</h3><p>Informações do negócio e armazenamento</p></div></div>
+          <form id="settings-form" class="form-grid two-columns">
+            <label>Nome do estabelecimento<input id="business-name" /></label>
+            <label>WhatsApp<input id="business-phone" inputmode="tel" /></label>
+            <label>Prefixo do pedido<input id="order-prefix" maxlength="8" /></label>
+            <label>Próximo número<input id="next-order-sequence" type="number" min="1" /></label>
+            <label class="span-2">Mensagem padrão do WhatsApp<textarea id="whatsapp-template" rows="5"></textarea></label>
+            <div class="span-2 form-actions left"><button type="submit" class="btn primary">Salvar configurações</button><button type="button" id="export-data-btn" class="btn secondary">Exportar backup</button><label class="btn ghost file-label">Importar backup<input id="import-data-input" type="file" accept="application/json" hidden /></label></div>
+          </form>
+          <div class="sync-box"><strong id="sync-title">Modo local</strong><p id="sync-description">Os dados deste aparelho estão sendo salvos no navegador.</p></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal" id="customer-modal" aria-hidden="true">
+    <div class="modal-card">
+      <div class="modal-head"><div><h3 id="customer-modal-title">Novo cliente</h3><p>Dados para contato, entrega e localização</p></div><button class="icon-btn" data-close-modal="customer-modal">✕</button></div>
+      <form id="customer-form">
+        <input type="hidden" id="customer-id" />
+        <div class="form-grid two-columns">
+          <label>Nome completo<input id="customer-name" required /></label>
+          <label>WhatsApp<input id="customer-phone" required inputmode="tel" /></label>
+          <label>CPF/CNPJ<input id="customer-document" /></label>
+          <label>CEP<input id="customer-zip" inputmode="numeric" /></label>
+          <label class="span-2">Endereço<input id="customer-address" required /></label>
+          <label>Bairro/Região<input id="customer-region" required /></label>
+          <label>Cidade<input id="customer-city" required /></label>
+          <label>Ponto de referência<input id="customer-reference" /></label>
+          <label>Pagamento preferido<select id="customer-payment"></select></label>
+          <label class="span-2">Observações<textarea id="customer-notes" rows="3"></textarea></label>
+        </div>
+        <div class="form-actions"><button type="button" class="btn ghost" data-close-modal="customer-modal">Cancelar</button><button type="submit" class="btn primary">Salvar cliente</button></div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal" id="product-modal" aria-hidden="true">
+    <div class="modal-card">
+      <div class="modal-head"><div><h3 id="product-modal-title">Novo produto</h3><p>Preço, unidade e controle de estoque</p></div><button class="icon-btn" data-close-modal="product-modal">✕</button></div>
+      <form id="product-form">
+        <input type="hidden" id="product-id" />
+        <div class="form-grid two-columns">
+          <label class="span-2">Nome do produto<input id="product-name" required /></label>
+          <label>Categoria<select id="product-category" required></select></label>
+          <label>Unidade<select id="product-unit" required></select></label>
+          <label>Preço de venda (R$)<input id="product-price" type="number" min="0" step="0.01" required /></label>
+          <label>Estoque atual<input id="product-stock" type="number" min="0" step="0.001" /></label>
+          <label>Estoque mínimo<input id="product-min-stock" type="number" min="0" step="0.001" /></label>
+          <label>Status<select id="product-active"><option value="true">Disponível</option><option value="false">Indisponível</option></select></label>
+          <label class="span-2">Descrição<textarea id="product-description" rows="3"></textarea></label>
+        </div>
+        <div class="form-actions"><button type="button" class="btn ghost" data-close-modal="product-modal">Cancelar</button><button type="submit" class="btn primary">Salvar produto</button></div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal" id="order-detail-modal" aria-hidden="true">
+    <div class="modal-card large">
+      <div class="modal-head"><div><h3 id="detail-order-number">Pedido</h3><p id="detail-order-customer"></p></div><button class="icon-btn" data-close-modal="order-detail-modal">✕</button></div>
+      <div id="order-detail-content"></div>
+      <div class="form-actions wrap" id="order-detail-actions"></div>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+  <script src="firebase-config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

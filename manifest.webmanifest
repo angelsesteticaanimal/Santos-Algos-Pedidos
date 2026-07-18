@@ -1,0 +1,17 @@
+{
+  "name": "Santos Pedidos Online",
+  "short_name": "Santos Pedidos",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f4f7f6",
+  "theme_color": "#0b5d50",
+  "description": "Talão digital para pedidos de camarão, peixe e entregas.",
+  "icons": [
+    {
+      "src": "assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

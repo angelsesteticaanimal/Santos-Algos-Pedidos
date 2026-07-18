@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Regras temporárias somente para o primeiro teste online.
+    // Substituir por regras com Firebase Authentication antes do uso real.
+    match /santosPedidos/{document=**} {
+      allow read, write: if true;
+    }
+  }
+}
